@@ -1,0 +1,19 @@
+- name: update apt cache
+  apt:
+    update_cache: yes
+
+- name: install MYSQL
+  apt: name=mysql-server state=present
+
+- name: start MYSQL
+  service:
+    name: mysql
+    state: started
+    enabled: true
+
+- name: set mysql root password
+  mysql_user:
+    name: root
+    password: pp0055
+    priv: "*.*:ALL,GRANT"
+    state: present

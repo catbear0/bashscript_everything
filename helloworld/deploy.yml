@@ -1,0 +1,9 @@
+- hosts: webservers
+  become: yes
+  become_method: sudo
+  tasks:
+     - include: 'tasks/install_mysql.yml'
+     - include: 'tasks/install_php-fpm.yml'
+     - include: 'tasks/install_nginx.yml'
+  handlers:
+     - include: 'handlers/main.yml'

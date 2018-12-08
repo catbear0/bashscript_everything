@@ -1,0 +1,29 @@
+- name: get key NGINX
+  apt_key: url=http://nginx.org/keys/nginx_signing.key state=present
+
+- name: deb NGINX
+  lineinfile: dest=/etc/apt/sources.list line="deb http://nginx.org/packages/mainline/ubuntu/ trusty nginx"
+
+- name: update apt cache
+  apt:
+    update_cache: yes
+
+- name: install NGINX
+  apt:
+    name: nginx
+    state: present
+
+- name: start NGINX
+  service:
+    name: nginx
+    state: started
+
+- name: copy NGINX config file
+  template: src=default dest=/etc/nginx/sites-available/default
+
+- name: create symlink
+  file: src=/etc/nginx/sites-available/default dest=/etc/nginx/sites-enabled/default state=link
+
+- name: replace index
+  copy: src=index.php dest=/var/www/html/
+  notify: restart nginx
