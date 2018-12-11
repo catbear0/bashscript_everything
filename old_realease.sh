@@ -1,9 +1,9 @@
 #!/bin/sh -x
-###################################################################
-############|  ATTENTION!!! This file wasn't generated automatically.  |############
-############|     Because ansible doesn't like old FreeBSD releases    |############
-############|          Editable copies recide in /home/itsumma         |############
-###################################################################
+
+###|  ATTENTION!!! This file wasn't generated automatically.  |###
+###|     Because ansible doesn't like old FreeBSD releases    |###
+###|          Editable copies recide in /home/user            |###
+
 export TZ=Europe/Moscow
 DT=$(date +"%Y-%m-%d-%H%M%S")
 LOG=/backup/files_default.log
