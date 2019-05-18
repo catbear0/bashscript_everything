@@ -1,0 +1,113 @@
+---
+- name: PostgreSQL repository configured
+  template: src="templates/{{ item.src }}" dest="/etc/yum.repos.d/{{ item.dest }}"
+  with_items:
+    - { src: PostgreSQL.repo.j2, dest: PostgreSQL.repo }
+
+- name: Install PostgreSQL packages
+  yum:
+    name:
+      - postgresql{{ postgresql_version_no_dot }}-server
+      - postgresql{{ postgresql_version_no_dot }}
+      - python-psycopg2
+    state: installed
+
+- name: Initiate database
+  command: "/usr/pgsql-{{ postgresql_version }}/bin/initdb -D {{ postgresql_data_dir }}"
+  become: true
+  become_user: postgres
+  args:
+    creates: "/var/lib/pgsql/{{ postgresql_version }}/data/PG_VERSION"
+
+- name: Master node auth configured
+  template: src=pg_hba.conf.j2 dest="/var/lib/pgsql/{{ postgresql_version }}/data/pg_hba.conf" owner=postgres group=postgres mode=0600
+  when: inventory_hostname == groups['postgresql'][0]
+
+- name: Master node configured
+  template: src=postgresql_m.conf.j2 dest="/var/lib/pgsql/{{ postgresql_version }}/data/postgresql.conf"
+  when: inventory_hostname == groups['postgresql'][0]
+  notify:
+    - restart postgres
+
+- name: Enable and start PostgreSQL master node
+  systemd:
+    name: "postgresql-{{ postgresql_version }}"
+    state: started
+    enabled: yes
+  when: inventory_hostname == groups['postgresql'][0]
+
+- name: Create operator user
+  postgresql_user:
+    name: "{{ postgresql_operator_user }}"
+    password: "{{ postgresql_operator_password }}"
+    role_attr_flags: SUPERUSER
+    login_unix_socket: /var/run/postgresql/
+    port: "{{ postgresql_listen_port }}"
+  become: true
+  become_user: postgres
+  when: inventory_hostname == groups['postgresql'][0]
+
+- name: PostgreSQL create databases
+  postgresql_db:
+    name: "{{ postgresql_operator_user }}"
+    login_unix_socket: /var/run/postgresql/
+    port: "{{ postgresql_listen_port }}"
+  become: true
+  become_user: postgres
+  when: inventory_hostname == groups['postgresql'][0]
+
+- name: Make pg_basebackup from master to standby nodes to enable replication
+  shell: >
+    rm -rf /var/lib/pgsql/{{ postgresql_version }}/data/* &&
+    pg_basebackup -h{{ hostvars[groups['postgresql'][0]]['private_ip'] }} -p{{ postgresql_listen_port }} -U postgres -D /var/lib/pgsql/{{ postgresql_version }}/data/ -P --xlog
+  when: inventory_hostname in groups['postgresql'] and inventory_hostname != groups['postgresql'][0]
+
+- block:
+  - name: Standby nodes auth configured
+    template: src=pg_hba.conf.j2 dest="/var/lib/pgsql/{{ postgresql_version }}/data/pg_hba.conf"
+    notify:
+      - restart postgres
+
+  - name: Standby nodes configured
+    template: src=postgresql_s.conf.j2 dest="/var/lib/pgsql/{{ postgresql_version }}/data/postgresql.conf"
+    notify:
+      - restart postgres
+
+  - name: Standby nodes recovery configured
+    template: src=recovery.conf.j2 dest="/var/lib/pgsql/{{ postgresql_version }}/data/recovery.conf"
+    notify:
+      - restart postgres
+  when: inventory_hostname in groups['postgresql'] and inventory_hostname != groups['postgresql'][0]
+
+- name: Set datadir ownership
+  shell: chown -R postgres:postgres /var/lib/pgsql/9.6/data/
+
+- name: Enable and start PostgreSQL standby nodes
+  systemd:
+    name: "postgresql-{{ postgresql_version }}"
+    state: started
+    enabled: yes
+  when: inventory_hostname in groups['postgresql'] and inventory_hostname != groups['postgresql'][0]
+
+- name: Ensure recovery.conf is absent on master node
+  file:
+    path: "/var/lib/pgsql/{{ postgresql_version }}/data/recovery.conf"
+    state: absent
+  when: inventory_hostname == groups['postgresql'][0]
+
+- name: Create the unix socket symlink
+  file:
+    src: /var/run/postgresql/.s.PGSQL.{{ postgresql_listen_port }}
+    dest: /var/run/postgresql/.s.PGSQL.5432
+    state: link
+  when: postgresql_listen_port != 5432
+
+- name: Set synchronous commit
+  lineinfile:
+    path: "/var/lib/pgsql/{{ postgresql_version }}/data/postgresql.conf"
+    regexp: '^synchronous_commit '
+    line: 'synchronous_commit = on'
+  notify:
+    - restart postgres
+
+- meta: flush_handlers
